@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Product, CartItem, StoreSettings } from '../types';
 import { formatRupiah } from '../services/imageUtils';
+import { ConfirmModal } from './ConfirmModal';
 
 interface PosViewProps {
   products: Product[];
@@ -25,6 +26,33 @@ interface PosViewProps {
   onProceedToPayment: (subtotal: number, discount: number, tax: number, total: number, customerName: string) => void;
   onOpenAddProduct: () => void;
 }
+
+const ProductCardImage: React.FC<{ imageUrl?: string; name: string }> = ({ imageUrl, name }) => {
+  const [hasError, setHasError] = useState(false);
+
+  if (!imageUrl || hasError) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-amber-50 text-slate-400 p-2 text-center">
+        <div className="w-10 h-10 rounded-xl bg-amber-100/80 text-amber-600 flex items-center justify-center mb-1">
+          <ImageIcon className="w-5 h-5" />
+        </div>
+        <span className="text-[10px] text-slate-500 font-medium line-clamp-1">
+          Belum ada foto
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={name}
+      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+      loading="lazy"
+      onError={() => setHasError(true)}
+    />
+  );
+};
 
 export const PosView: React.FC<PosViewProps> = ({
   products,
@@ -100,13 +128,18 @@ export const PosView: React.FC<PosViewProps> = ({
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
   };
 
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
   const clearCart = () => {
     if (cart.length === 0) return;
-    if (window.confirm('Kosongkan semua pesanan di keranjang?')) {
-      setCart([]);
-      setDiscountValue(0);
-      setCustomerName('');
-    }
+    setIsResetConfirmOpen(true);
+  };
+
+  const handleConfirmClearCart = () => {
+    setCart([]);
+    setDiscountValue(0);
+    setCustomerName('');
+    setIsResetConfirmOpen(false);
   };
 
   // Calculate totals
@@ -251,34 +284,7 @@ export const PosView: React.FC<PosViewProps> = ({
                   >
                     {/* PRODUCT IMAGE SECTION */}
                     <div className="relative w-full aspect-square bg-slate-100 overflow-hidden">
-                      {product.imageUrl ? (
-                        <img
-                          src={product.imageUrl}
-                          alt={product.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          loading="lazy"
-                          onError={(e) => {
-                            // Graceful fallback if link broken
-                            (e.target as HTMLElement).style.display = 'none';
-                            const fallback = (e.target as HTMLElement).nextElementSibling;
-                            if (fallback) fallback.classList.remove('hidden');
-                          }}
-                        />
-                      ) : null}
-
-                      {/* Fallback placeholder if no image */}
-                      <div
-                        className={`w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-amber-50 text-slate-400 p-2 text-center ${
-                          product.imageUrl ? 'hidden' : ''
-                        }`}
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-amber-100/80 text-amber-600 flex items-center justify-center mb-1">
-                          <ImageIcon className="w-5 h-5" />
-                        </div>
-                        <span className="text-[10px] text-slate-500 font-medium line-clamp-1">
-                          Belum ada foto
-                        </span>
-                      </div>
+                      <ProductCardImage imageUrl={product.imageUrl} name={product.name} />
 
                       {/* Category Badge */}
                       <span className="absolute top-2 left-2 bg-slate-900/75 backdrop-blur-md text-white text-[10px] font-medium px-2 py-0.5 rounded-full shadow-sm">
@@ -610,6 +616,18 @@ export const PosView: React.FC<PosViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Confirm Clear Cart Modal */}
+      <ConfirmModal
+        isOpen={isResetConfirmOpen}
+        title="Kosongkan Keranjang?"
+        message="Semua daftar item pesanan yang sudah dipilih akan dihapus dari keranjang."
+        confirmLabel="Ya, Kosongkan"
+        cancelLabel="Batal"
+        isDestructive={true}
+        onConfirm={handleConfirmClearCart}
+        onCancel={() => setIsResetConfirmOpen(false)}
+      />
     </div>
   );
 };

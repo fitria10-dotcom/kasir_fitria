@@ -43,10 +43,12 @@ export async function compressImageFile(
         // Fill background white in case of transparent PNG
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        resolve(dataUrl);
+        try {
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        } catch {
+          resolve(reader.result as string);
+        }
       };
       img.src = reader.result as string;
     };

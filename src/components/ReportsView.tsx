@@ -114,12 +114,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return list.slice(0, 5);
   }, [filteredTransactions]);
 
+  const [exportNotice, setExportNotice] = useState<string>('');
+
   // Export CSV
   const handleExportCSV = () => {
     if (filteredTransactions.length === 0) {
-      alert('Tidak ada transaksi untuk diekspor.');
+      setExportNotice('Tidak ada transaksi untuk diekspor pada filter aktif.');
+      setTimeout(() => setExportNotice(''), 4000);
       return;
     }
+    setExportNotice('');
 
     const headers = ['No Invoice', 'Waktu', 'Kasir', 'Pelanggan', 'Metode Bayar', 'Subtotal', 'Diskon', 'Pajak', 'Total'];
     const rows = filteredTransactions.map((t) => [
@@ -166,6 +170,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <span>Ekspor Laporan (CSV)</span>
         </button>
       </div>
+
+      {exportNotice && (
+        <div className="p-3 bg-amber-50 border border-amber-200 text-xs text-amber-900 font-semibold rounded-2xl">
+          {exportNotice}
+        </div>
+      )}
 
       {/* Filter Controls Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">

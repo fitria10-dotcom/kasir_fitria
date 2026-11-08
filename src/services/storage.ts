@@ -176,35 +176,70 @@ export const INITIAL_SETTINGS: StoreSettings = {
   currencySymbol: 'Rp',
 };
 
-// Open IndexedDB database
+// In-memory fallback
+let memoryProducts: Product[] = [...INITIAL_PRODUCTS];
+let memoryCashiers: CashierAccount[] = [...INITIAL_CASHIERS];
+let memoryTransactions: Transaction[] = [];
+let memorySettings: StoreSettings = { ...INITIAL_SETTINGS };
+
+// Safe helper for localStorage
+function safeGetLocalStorage<T>(key: string, defaultValue: T): T {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return defaultValue;
+    const item = window.localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
+function safeSetLocalStorage(key: string, value: any): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    }
+  } catch {
+    // ignore quota errors
+  }
+}
+
+// Open IndexedDB database safely
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || !window.indexedDB) {
-      reject(new Error('IndexedDB is not supported'));
-      return;
+    try {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        reject(new Error('IndexedDB is not supported'));
+        return;
+      }
+      const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onupgradeneeded = () => {
+        try {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(STORE_PRODUCTS)) {
+            db.createObjectStore(STORE_PRODUCTS, { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains(STORE_TRANSACTIONS)) {
+            const transStore = db.createObjectStore(STORE_TRANSACTIONS, { keyPath: 'id' });
+            transStore.createIndex('timestamp', 'timestamp', { unique: false });
+            transStore.createIndex('cashierId', 'cashierId', { unique: false });
+          }
+          if (!db.objectStoreNames.contains(STORE_CASHIERS)) {
+            db.createObjectStore(STORE_CASHIERS, { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+            db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
+          }
+        } catch (e) {
+          console.warn('onupgradeneeded error:', e);
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('Failed to open IndexedDB'));
+    } catch (e) {
+      reject(e);
     }
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_PRODUCTS)) {
-        db.createObjectStore(STORE_PRODUCTS, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(STORE_TRANSACTIONS)) {
-        const transStore = db.createObjectStore(STORE_TRANSACTIONS, { keyPath: 'id' });
-        transStore.createIndex('timestamp', 'timestamp', { unique: false });
-        transStore.createIndex('cashierId', 'cashierId', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(STORE_CASHIERS)) {
-        db.createObjectStore(STORE_CASHIERS, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
-        db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
   });
 }
 
@@ -212,33 +247,36 @@ export const StorageService = {
   async init(): Promise<void> {
     try {
       const db = await openDB();
-      // Check if products exist, otherwise seed
       const products = await this.getProducts();
       if (products.length === 0) {
         await this.saveProducts(INITIAL_PRODUCTS);
       }
-      // Check if cashiers exist, otherwise seed
       const cashiers = await this.getCashiers();
       if (cashiers.length === 0) {
         await this.saveCashiers(INITIAL_CASHIERS);
       }
-      // Check settings
       const settings = await this.getSettings();
       if (!settings) {
         await this.saveSettings(INITIAL_SETTINGS);
       }
     } catch (err) {
-      console.warn('Fallback to LocalStorage due to IndexedDB init error:', err);
-      // Fallback seeds in localStorage
-      if (!localStorage.getItem(STORE_PRODUCTS)) {
-        localStorage.setItem(STORE_PRODUCTS, JSON.stringify(INITIAL_PRODUCTS));
+      // Fallback cleanly to localStorage and in-memory
+      const localProds = safeGetLocalStorage<Product[]>(STORE_PRODUCTS, []);
+      if (localProds.length > 0) {
+        memoryProducts = localProds;
+      } else {
+        safeSetLocalStorage(STORE_PRODUCTS, INITIAL_PRODUCTS);
       }
-      if (!localStorage.getItem(STORE_CASHIERS)) {
-        localStorage.setItem(STORE_CASHIERS, JSON.stringify(INITIAL_CASHIERS));
+
+      const localCashiers = safeGetLocalStorage<CashierAccount[]>(STORE_CASHIERS, []);
+      if (localCashiers.length > 0) {
+        memoryCashiers = localCashiers;
+      } else {
+        safeSetLocalStorage(STORE_CASHIERS, INITIAL_CASHIERS);
       }
-      if (!localStorage.getItem(STORE_SETTINGS)) {
-        localStorage.setItem(STORE_SETTINGS, JSON.stringify(INITIAL_SETTINGS));
-      }
+
+      const localSettings = safeGetLocalStorage<StoreSettings>(STORE_SETTINGS, INITIAL_SETTINGS);
+      memorySettings = localSettings;
     }
   },
 
@@ -246,22 +284,34 @@ export const StorageService = {
     try {
       const db = await openDB();
       return new Promise((resolve) => {
-        const tx = db.transaction(STORE_PRODUCTS, 'readonly');
-        const store = tx.objectStore(STORE_PRODUCTS);
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => {
-          const fallback = localStorage.getItem(STORE_PRODUCTS);
-          resolve(fallback ? JSON.parse(fallback) : INITIAL_PRODUCTS);
-        };
+        try {
+          const tx = db.transaction(STORE_PRODUCTS, 'readonly');
+          const store = tx.objectStore(STORE_PRODUCTS);
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const res = req.result || [];
+            if (res.length > 0) {
+              memoryProducts = res;
+              resolve(res);
+            } else {
+              const fallback = safeGetLocalStorage(STORE_PRODUCTS, memoryProducts);
+              resolve(fallback.length > 0 ? fallback : INITIAL_PRODUCTS);
+            }
+          };
+          req.onerror = () => {
+            resolve(safeGetLocalStorage(STORE_PRODUCTS, memoryProducts));
+          };
+        } catch {
+          resolve(safeGetLocalStorage(STORE_PRODUCTS, memoryProducts));
+        }
       });
     } catch {
-      const fallback = localStorage.getItem(STORE_PRODUCTS);
-      return fallback ? JSON.parse(fallback) : INITIAL_PRODUCTS;
+      return safeGetLocalStorage(STORE_PRODUCTS, memoryProducts);
     }
   },
 
   async saveProducts(products: Product[]): Promise<void> {
+    memoryProducts = [...products];
     try {
       const db = await openDB();
       const tx = db.transaction(STORE_PRODUCTS, 'readwrite');
@@ -273,11 +323,7 @@ export const StorageService = {
     } catch {
       // ignore
     }
-    try {
-      localStorage.setItem(STORE_PRODUCTS, JSON.stringify(products));
-    } catch {
-      // localStorage may fail if large base64; IndexedDB handles it
-    }
+    safeSetLocalStorage(STORE_PRODUCTS, products);
   },
 
   async addOrUpdateProduct(product: Product): Promise<void> {
@@ -301,22 +347,33 @@ export const StorageService = {
     try {
       const db = await openDB();
       return new Promise((resolve) => {
-        const tx = db.transaction(STORE_CASHIERS, 'readonly');
-        const store = tx.objectStore(STORE_CASHIERS);
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => {
-          const fallback = localStorage.getItem(STORE_CASHIERS);
-          resolve(fallback ? JSON.parse(fallback) : INITIAL_CASHIERS);
-        };
+        try {
+          const tx = db.transaction(STORE_CASHIERS, 'readonly');
+          const store = tx.objectStore(STORE_CASHIERS);
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const res = req.result || [];
+            if (res.length > 0) {
+              memoryCashiers = res;
+              resolve(res);
+            } else {
+              resolve(safeGetLocalStorage(STORE_CASHIERS, memoryCashiers));
+            }
+          };
+          req.onerror = () => {
+            resolve(safeGetLocalStorage(STORE_CASHIERS, memoryCashiers));
+          };
+        } catch {
+          resolve(safeGetLocalStorage(STORE_CASHIERS, memoryCashiers));
+        }
       });
     } catch {
-      const fallback = localStorage.getItem(STORE_CASHIERS);
-      return fallback ? JSON.parse(fallback) : INITIAL_CASHIERS;
+      return safeGetLocalStorage(STORE_CASHIERS, memoryCashiers);
     }
   },
 
   async saveCashiers(cashiers: CashierAccount[]): Promise<void> {
+    memoryCashiers = [...cashiers];
     try {
       const db = await openDB();
       const tx = db.transaction(STORE_CASHIERS, 'readwrite');
@@ -328,11 +385,7 @@ export const StorageService = {
     } catch {
       // ignore
     }
-    try {
-      localStorage.setItem(STORE_CASHIERS, JSON.stringify(cashiers));
-    } catch {
-      // ignore
-    }
+    safeSetLocalStorage(STORE_CASHIERS, cashiers);
   },
 
   async addOrUpdateCashier(cashier: CashierAccount): Promise<void> {
@@ -356,63 +409,68 @@ export const StorageService = {
     try {
       const db = await openDB();
       return new Promise((resolve) => {
-        const tx = db.transaction(STORE_TRANSACTIONS, 'readonly');
-        const store = tx.objectStore(STORE_TRANSACTIONS);
-        const req = store.getAll();
-        req.onsuccess = () => {
-          const list: Transaction[] = req.result || [];
-          list.sort((a, b) => b.timestamp - a.timestamp);
-          resolve(list);
-        };
-        req.onerror = () => {
-          const fallback = localStorage.getItem(STORE_TRANSACTIONS);
-          resolve(fallback ? JSON.parse(fallback) : []);
-        };
+        try {
+          const tx = db.transaction(STORE_TRANSACTIONS, 'readonly');
+          const store = tx.objectStore(STORE_TRANSACTIONS);
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const list: Transaction[] = req.result || [];
+            list.sort((a, b) => b.timestamp - a.timestamp);
+            memoryTransactions = list;
+            resolve(list);
+          };
+          req.onerror = () => {
+            resolve(safeGetLocalStorage(STORE_TRANSACTIONS, memoryTransactions));
+          };
+        } catch {
+          resolve(safeGetLocalStorage(STORE_TRANSACTIONS, memoryTransactions));
+        }
       });
     } catch {
-      const fallback = localStorage.getItem(STORE_TRANSACTIONS);
-      return fallback ? JSON.parse(fallback) : [];
+      return safeGetLocalStorage(STORE_TRANSACTIONS, memoryTransactions);
     }
   },
 
   async saveTransaction(transaction: Transaction): Promise<void> {
+    memoryTransactions = [transaction, ...memoryTransactions];
     try {
       const db = await openDB();
       const tx = db.transaction(STORE_TRANSACTIONS, 'readwrite');
       const store = tx.objectStore(STORE_TRANSACTIONS);
       store.put(transaction);
     } catch {
-      // fallback
-    }
-    try {
-      const current = await this.getTransactions();
-      const updated = [transaction, ...current];
-      localStorage.setItem(STORE_TRANSACTIONS, JSON.stringify(updated.slice(0, 200)));
-    } catch {
       // ignore
     }
+    safeSetLocalStorage(STORE_TRANSACTIONS, memoryTransactions.slice(0, 100));
   },
 
   async getSettings(): Promise<StoreSettings> {
     try {
       const db = await openDB();
       return new Promise((resolve) => {
-        const tx = db.transaction(STORE_SETTINGS, 'readonly');
-        const store = tx.objectStore(STORE_SETTINGS);
-        const req = store.get('current');
-        req.onsuccess = () => resolve(req.result?.data || INITIAL_SETTINGS);
-        req.onerror = () => {
-          const fallback = localStorage.getItem(STORE_SETTINGS);
-          resolve(fallback ? JSON.parse(fallback) : INITIAL_SETTINGS);
-        };
+        try {
+          const tx = db.transaction(STORE_SETTINGS, 'readonly');
+          const store = tx.objectStore(STORE_SETTINGS);
+          const req = store.get('current');
+          req.onsuccess = () => {
+            const res = req.result?.data || INITIAL_SETTINGS;
+            memorySettings = res;
+            resolve(res);
+          };
+          req.onerror = () => {
+            resolve(safeGetLocalStorage(STORE_SETTINGS, memorySettings));
+          };
+        } catch {
+          resolve(safeGetLocalStorage(STORE_SETTINGS, memorySettings));
+        }
       });
     } catch {
-      const fallback = localStorage.getItem(STORE_SETTINGS);
-      return fallback ? JSON.parse(fallback) : INITIAL_SETTINGS;
+      return safeGetLocalStorage(STORE_SETTINGS, memorySettings);
     }
   },
 
   async saveSettings(settings: StoreSettings): Promise<void> {
+    memorySettings = { ...settings };
     try {
       const db = await openDB();
       const tx = db.transaction(STORE_SETTINGS, 'readwrite');
@@ -421,31 +479,29 @@ export const StorageService = {
     } catch {
       // ignore
     }
-    try {
-      localStorage.setItem(STORE_SETTINGS, JSON.stringify(settings));
-    } catch {
-      // ignore
-    }
+    safeSetLocalStorage(STORE_SETTINGS, settings);
   },
 
-  // Export full backup
   async exportBackup(): Promise<string> {
     const products = await this.getProducts();
     const cashiers = await this.getCashiers();
     const transactions = await this.getTransactions();
     const settings = await this.getSettings();
-    return JSON.stringify({
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      storeName: settings.storeName,
-      products,
-      cashiers,
-      transactions,
-      settings,
-    }, null, 2);
+    return JSON.stringify(
+      {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        storeName: settings.storeName,
+        products,
+        cashiers,
+        transactions,
+        settings,
+      },
+      null,
+      2
+    );
   },
 
-  // Import backup
   async importBackup(jsonData: string): Promise<boolean> {
     try {
       const data = JSON.parse(jsonData);
@@ -456,13 +512,19 @@ export const StorageService = {
         await this.saveCashiers(data.cashiers);
       }
       if (Array.isArray(data.transactions)) {
-        const db = await openDB();
-        const tx = db.transaction(STORE_TRANSACTIONS, 'readwrite');
-        const store = tx.objectStore(STORE_TRANSACTIONS);
-        store.clear();
-        for (const t of data.transactions) {
-          store.put(t);
+        try {
+          const db = await openDB();
+          const tx = db.transaction(STORE_TRANSACTIONS, 'readwrite');
+          const store = tx.objectStore(STORE_TRANSACTIONS);
+          store.clear();
+          for (const t of data.transactions) {
+            store.put(t);
+          }
+        } catch {
+          // ignore
         }
+        memoryTransactions = data.transactions;
+        safeSetLocalStorage(STORE_TRANSACTIONS, data.transactions.slice(0, 100));
       }
       if (data.settings) {
         await this.saveSettings(data.settings);

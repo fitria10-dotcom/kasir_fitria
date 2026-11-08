@@ -32,8 +32,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
   if (!isOpen || !transaction) return null;
 
+  const [printError, setPrintError] = React.useState<string>('');
+
   const handlePrint = () => {
-    window.print();
+    try {
+      window.print();
+    } catch {
+      setPrintError('Pencetakan dibatasi oleh browser. Anda dapat menyalin teks struk.');
+    }
   };
 
   const getReceiptPlainText = () => {
@@ -71,15 +77,42 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(getReceiptPlainText());
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const text = getReceiptPlainText();
+    try {
+      if (navigator?.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(
+          () => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          },
+          () => fallbackCopy(text)
+        );
+      } else {
+        fallbackCopy(text);
+      }
+    } catch {
+      fallbackCopy(text);
+    }
   };
 
-  const handleWhatsApp = () => {
-    const text = encodeURIComponent(getReceiptPlainText());
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+  const fallbackCopy = (text: string) => {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.warn('Copy failed:', e);
+    }
   };
+
+  const waText = encodeURIComponent(getReceiptPlainText());
 
   return (
     <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
@@ -229,6 +262,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
         {/* Action Buttons (no-print) */}
         <div className="no-print p-4 bg-white border-t border-slate-200 flex flex-col gap-2">
+          {printError && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg text-center font-medium">
+              {printError}
+            </p>
+          )}
           <div className="grid grid-cols-3 gap-2">
             <button
               onClick={handlePrint}
@@ -238,13 +276,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <span>Cetak Struk</span>
             </button>
 
-            <button
-              onClick={handleWhatsApp}
-              className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
+            <a
+              href={`https://api.whatsapp.com/send?text=${waText}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 text-center"
             >
               <MessageCircle className="w-4 h-4" />
               <span>Kirim WA</span>
-            </button>
+            </a>
 
             <button
               onClick={handleCopy}

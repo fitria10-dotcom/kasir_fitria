@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { StoreSettings } from '../types';
 import { StorageService } from '../services/storage';
+import { ConfirmModal } from './ConfirmModal';
 
 interface SettingsViewProps {
   settings: StoreSettings;
@@ -84,6 +85,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
     };
     reader.readAsText(file);
+  };
+
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
+  const handleConfirmReset = async () => {
+    setIsResetConfirmOpen(false);
+    await onDataReset();
   };
 
   return (
@@ -257,15 +265,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </span>
           </div>
           <button
-            onClick={async () => {
-              if (
-                window.confirm(
-                  'Yakin ingin me-reset data ke contoh awal? Semua data baru akan digantikan dengan data contoh bawaan.'
-                )
-              ) {
-                await onDataReset();
-              }
-            }}
+            onClick={() => setIsResetConfirmOpen(true)}
             className="text-xs text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 px-3 py-1.5 rounded-xl transition-colors font-semibold flex items-center gap-1"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -273,6 +273,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Confirm Reset Modal */}
+      <ConfirmModal
+        isOpen={isResetConfirmOpen}
+        title="Reset ke Data Bawaan?"
+        message="Semua data produk baru, foto, akun kasir tambahan, dan riwayat transaksi akan dikembalikan ke data awal contoh."
+        confirmLabel="Ya, Reset Semua"
+        cancelLabel="Batal"
+        isDestructive={true}
+        onConfirm={handleConfirmReset}
+        onCancel={() => setIsResetConfirmOpen(false)}
+      />
     </div>
   );
 };

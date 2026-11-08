@@ -71,15 +71,19 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setAmountPaidInput(val.toString());
   };
 
+  const [errorMsg, setErrorMsg] = useState<string>('');
+
   const handleComplete = () => {
     if (method === 'cash') {
       if (isCashInsufficient) {
-        alert('Jumlah uang tunai yang diterima kurang dari total belanja.');
+        setErrorMsg('Jumlah uang tunai yang diterima kurang dari total belanja.');
         return;
       }
+      setErrorMsg('');
       onConfirmPayment('cash', numericPaid, change);
     } else {
       // Non-cash is exact amount
+      setErrorMsg('');
       onConfirmPayment(method, total, 0);
     }
   };
@@ -321,8 +325,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           </div>
         )}
 
+        {/* Error message */}
+        {errorMsg && (
+          <div className="mt-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
         {/* Action Buttons */}
-        <div className="mt-5 pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+        <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}

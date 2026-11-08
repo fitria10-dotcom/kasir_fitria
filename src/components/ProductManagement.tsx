@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Product } from '../types';
 import { compressImageFile, formatRupiah } from '../services/imageUtils';
+import { ConfirmModal } from './ConfirmModal';
 
 interface ProductManagementProps {
   products: Product[];
@@ -35,6 +36,26 @@ const PRESET_IMAGES = [
   { label: 'Dimsum', url: 'https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=600&q=80' },
   { label: 'Roti / Pastry', url: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=600&q=80' },
 ];
+
+const TableProductThumbnail: React.FC<{ imageUrl?: string; name: string }> = ({ imageUrl, name }) => {
+  const [hasError, setHasError] = useState(false);
+  if (!imageUrl || hasError) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-1">
+        <ImageIcon className="w-5 h-5 text-slate-300" />
+        <span className="text-[9px] text-slate-400 mt-0.5">No Foto</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={imageUrl}
+      alt={name}
+      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200"
+      onError={() => setHasError(true)}
+    />
+  );
+};
 
 export const ProductManagement: React.FC<ProductManagementProps> = ({
   products,
@@ -131,6 +152,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     }
   };
 
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [formError, setFormError] = useState<string>('');
+
   const handleApplyUrl = () => {
     if (!imageUrlInput.trim()) return;
     setImageUrl(imageUrlInput.trim());
@@ -139,9 +163,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert('Nama produk tidak boleh kosong');
+      setFormError('Nama produk wajib diisi.');
       return;
     }
+    setFormError('');
 
     const finalCategory = category === 'Lainnya' && customCategory.trim() ? customCategory.trim() : category;
 
@@ -163,10 +188,14 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setIsModalOpen(false);
   };
 
-  const handleDelete = async (id: string, prodName: string) => {
-    if (window.confirm(`Hapus produk "${prodName}"? Tindakan ini tidak dapat dibatalkan.`)) {
-      await onDeleteProduct(id);
-    }
+  const handleDelete = (id: string, prodName: string) => {
+    setDeleteTarget({ id, name: prodName });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    await onDeleteProduct(deleteTarget.id);
+    setDeleteTarget(null);
   };
 
   return (
@@ -256,21 +285,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       {/* Product Photo Thumbnail */}
                       <td className="py-2.5 px-4">
                         <div className="w-14 h-14 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 relative group">
-                          {p.imageUrl ? (
-                            <img
-                              src={p.imageUrl}
-                              alt={p.name}
-                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200"
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-1">
-                              <ImageIcon className="w-5 h-5 text-slate-300" />
-                              <span className="text-[9px] text-slate-400 mt-0.5">No Foto</span>
-                            </div>
-                          )}
+                          <TableProductThumbnail imageUrl={p.imageUrl} name={p.name} />
                         </div>
                       </td>
 
@@ -645,6 +660,14 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 </div>
               </div>
 
+              {/* Form Error alert */}
+              {formError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               {/* Footer buttons */}
               <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
@@ -666,6 +689,18 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           </div>
         </div>
       )}
+
+      {/* Confirm Delete Product Modal */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Hapus Produk?"
+        message={`Apakah Anda yakin ingin menghapus produk "${deleteTarget?.name}"? Tindakan ini tidak dapat dibatalkan.`}
+        confirmLabel="Ya, Hapus Produk"
+        cancelLabel="Batal"
+        isDestructive={true}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 };

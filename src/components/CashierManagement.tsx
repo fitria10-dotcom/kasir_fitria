@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { CashierAccount, CashierRole, Transaction } from '../types';
 import { formatRupiah, formatDateTime } from '../services/imageUtils';
+import { ConfirmModal } from './ConfirmModal';
 
 interface CashierManagementProps {
   cashiers: CashierAccount[];
@@ -93,16 +94,21 @@ export const CashierManagement: React.FC<CashierManagementProps> = ({
     setIsModalOpen(true);
   };
 
+  const [formError, setFormError] = useState<string>('');
+  const [notice, setNotice] = useState<string>('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert('Nama kasir wajib diisi');
+      setFormError('Nama kasir wajib diisi.');
       return;
     }
     if (!pin.trim() || pin.length < 4) {
-      alert('PIN harus terdiri dari minimal 4 digit angka');
+      setFormError('PIN harus terdiri dari minimal 4 digit angka.');
       return;
     }
+    setFormError('');
 
     const newCashier: CashierAccount = {
       id: editingCashier ? editingCashier.id : `cashier-${Date.now()}`,
@@ -121,18 +127,24 @@ export const CashierManagement: React.FC<CashierManagementProps> = ({
     setIsModalOpen(false);
   };
 
-  const handleDelete = async (id: string, cashierName: string) => {
+  const handleDelete = (id: string, cashierName: string) => {
     if (cashiers.length <= 1) {
-      alert('Tidak dapat menghapus akun kasir terakhir.');
+      setNotice('Tidak dapat menghapus akun kasir terakhir.');
+      setTimeout(() => setNotice(''), 4000);
       return;
     }
     if (activeCashier?.id === id) {
-      alert('Tidak dapat menghapus akun kasir yang sedang aktif bertugas. Silakan ganti kasir terlebih dahulu.');
+      setNotice('Tidak dapat menghapus akun kasir yang sedang aktif bertugas. Silakan ganti kasir terlebih dahulu.');
+      setTimeout(() => setNotice(''), 4000);
       return;
     }
-    if (window.confirm(`Hapus akun kasir "${cashierName}"?`)) {
-      await onDeleteCashier(id);
-    }
+    setDeleteTarget({ id, name: cashierName });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    await onDeleteCashier(deleteTarget.id);
+    setDeleteTarget(null);
   };
 
   return (
@@ -154,6 +166,14 @@ export const CashierManagement: React.FC<CashierManagementProps> = ({
           <span>Tambah Kasir Baru</span>
         </button>
       </div>
+
+      {/* Notice Banner */}
+      {notice && (
+        <div className="mb-4 p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-900 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>{notice}</span>
+        </div>
+      )}
 
       {/* Cashier Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -437,6 +457,14 @@ export const CashierManagement: React.FC<CashierManagementProps> = ({
                 />
               </div>
 
+              {/* Form Error alert */}
+              {formError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               {/* Buttons */}
               <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
@@ -458,6 +486,18 @@ export const CashierManagement: React.FC<CashierManagementProps> = ({
           </div>
         </div>
       )}
+
+      {/* Confirm Delete Cashier Modal */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Hapus Akun Kasir?"
+        message={`Apakah Anda yakin ingin menghapus akun kasir "${deleteTarget?.name}"?`}
+        confirmLabel="Ya, Hapus Kasir"
+        cancelLabel="Batal"
+        isDestructive={true}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 };

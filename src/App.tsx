@@ -8,6 +8,7 @@ import { SettingsView } from './components/SettingsView';
 import { PaymentModal } from './components/PaymentModal';
 import { ReceiptModal } from './components/ReceiptModal';
 import { CashierLoginModal } from './components/CashierLoginModal';
+import { ToastContainer, ToastMessage } from './components/Toast';
 import {
   Product,
   CartItem,
@@ -52,6 +53,19 @@ export default function App() {
   const [activeReceipt, setActiveReceipt] = useState<Transaction | null>(null);
 
   const [isSwitchCashierModalOpen, setIsSwitchCashierModalOpen] = useState(false);
+
+  // Toast notifications
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = `toast-${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev, { id, text, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3500);
+  };
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // Initialize DB on boot
   useEffect(() => {
@@ -231,7 +245,7 @@ export default function App() {
     setActiveCashier(INITIAL_CASHIERS[0]);
     localStorage.setItem('activeCashierId', INITIAL_CASHIERS[0].id);
     setCart([]);
-    alert('Data berhasil di-reset ke pengaturan awal.');
+    showToast('Data berhasil di-reset ke pengaturan awal.', 'success');
   };
 
   if (loading) {
@@ -349,6 +363,9 @@ export default function App() {
           setCurrentTab('cashiers');
         }}
       />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
